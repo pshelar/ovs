@@ -729,8 +729,11 @@ static void ovs_fragment(struct net *net, struct vport *vport,
 		orig_dst = (unsigned long) skb_dst(skb);
 		skb_dst_set_noref(skb, &ovs_rt.dst);
 		IP6CB(skb)->frag_max_size = mru;
-
+#ifdef HAVE_IP_LOCAL_OUT_TAKES_NET
+		v6ops->fragment(net, skb->sk, skb, ovs_vport_output);
+#else
 		v6ops->fragment(skb->sk, skb, ovs_vport_output);
+#endif
 		refdst_drop(orig_dst);
 	} else {
 		WARN_ONCE(1, "Failed fragment ->%s: eth=%04x, MRU=%d, MTU=%d.",
