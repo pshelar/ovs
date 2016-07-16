@@ -105,7 +105,9 @@ static inline bool netif_needs_gso(struct sk_buff *skb,
 }
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
+#ifndef HAVE_NETDEV_MASTER_UPPER_DEV_LINK_PRIV
+
+#ifndef HAVE_NETDEV_MASTER_UPPER_DEV_LINK
 
 /* XEN dom0 networking assumes dev->master is bond device
  * and it tries to access bond private structure from dev->master
@@ -113,7 +115,8 @@ static inline bool netif_needs_gso(struct sk_buff *skb,
  * not to backport this API.
  **/
 static inline int netdev_master_upper_dev_link(struct net_device *dev,
-					       struct net_device *upper_dev)
+					       struct net_device *upper_dev,
+					       void *upper_priv, void *upper_info)
 {
 	return 0;
 }
@@ -127,6 +130,16 @@ static inline struct net_device *netdev_master_upper_dev_get(struct net_device *
 {
 	return NULL;
 }
+#else
+static inline int rpl_netdev_master_upper_dev_link(struct net_device *dev,
+					       struct net_device *upper_dev,
+					       void *upper_priv, void *upper_info)
+{
+	return netdev_master_upper_dev_link(dev, upper_dev);
+}
+#define netdev_master_upper_dev_link rpl_netdev_master_upper_dev_link
+
+#endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,16,0)
