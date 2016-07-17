@@ -21,6 +21,7 @@ function install_kernel()
     tar xzvf linux-${1}.tar.gz > /dev/null
     cd linux-${1}
     make allmodconfig
+    sed -i -e 's/CONFIG_KCOV=y/CONFIG_KCOV=n/g' .config
 
     # Older kernels do not include openvswitch
     if [ -d "net/openvswitch" ]; then
