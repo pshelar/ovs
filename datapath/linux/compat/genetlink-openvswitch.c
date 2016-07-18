@@ -6,19 +6,16 @@
 #undef genl_notify
 
 void rpl_genl_notify(struct rpl_genl_family *family, struct sk_buff *skb,
-		     struct net *net, u32 portid, u32 group,
-		     struct nlmsghdr *nlh, gfp_t flags)
+		     struct genl_info *info, u32 group, gfp_t flags)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,3,0)
-	struct sock *sk = net->genl_sock;
-	int report = 0;
+#ifdef HAVE_GENL_NOTIFY_TAKES_NET
+	struct net *net = genl_info_net(info);
+	u32 portid = info->snd_portid;
+	struct nlmsghdr *nlh = info->nlhdr;
 
-	if (nlh)
-		report = nlmsg_report(nlh);
-
-	nlmsg_notify(sk, skb, portid, group, report, flags);
-#else
 	genl_notify(skb, net, portid, group, nlh, flags);
+#else
+	genl_notify(family, skb, info, group, flags);
 #endif
 }
 EXPORT_SYMBOL_GPL(rpl_genl_notify);
@@ -54,5 +51,18 @@ error:
 
 }
 EXPORT_SYMBOL_GPL(rpl___genl_register_family);
+#else
+#ifdef HAVE_GENL_NOTIFY_TAKES_NET
+void rpl_genl_notify(struct genl_family *family, struct sk_buff *skb,
+		     struct genl_info *info, u32 group, gfp_t flags)
+{
+	struct net *net = genl_info_net(info);
+	u32 portid = info->snd_portid;
+	struct nlmsghdr *nlh = info->nlhdr;
 
+#undef genl_notify
+	genl_notify(family, skb, net, portid, group, nlh, flags);
+}
+EXPORT_SYMBOL_GPL(rpl_genl_notify);
+#endif
 #endif /* kernel version < 3.13.0 */
