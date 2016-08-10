@@ -123,7 +123,9 @@ int ovs_iptunnel_handle_offloads(struct sk_buff *skb,
 	 * on the outer header without confusing devices that implement
 	 * NETIF_F_IP_CSUM with encapsulation.
 	 */
+#ifdef USE_UPSTREAM_TUNNEL_GSO
 	if (csum_help)
+#endif
 		skb->encapsulation = 0;
 
 	if (skb->ip_summed == CHECKSUM_PARTIAL && csum_help) {
