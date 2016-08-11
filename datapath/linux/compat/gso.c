@@ -236,9 +236,6 @@ static int output_ip(struct sk_buff *skb)
 
 int rpl_ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
-	/* This bit set can confuse some drivers on old kernel. */
-	skb->encapsulation = 0;
-
 	if (!OVS_GSO_CB(skb)->fix_segment)
 		return output_ip(skb);
 
@@ -282,9 +279,6 @@ static int output_ipv6(struct sk_buff *skb)
 
 int rpl_ip6_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
-	/* This bit set can confuse some drivers on old kernel. */
-	skb->encapsulation = 0;
-
 	if (!OVS_GSO_CB(skb)->fix_segment)
 		return output_ipv6(skb);
 
