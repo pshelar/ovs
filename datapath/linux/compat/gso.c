@@ -192,10 +192,10 @@ static struct sk_buff *tnl_skb_gso_segment(struct sk_buff *skb,
 
 #ifdef HAVE___SKB_GSO_SEGMENT
 #undef __skb_gso_segment
-	segs = __skb_gso_segment(skb, 0, tx_path);
+	segs = __skb_gso_segment(skb, features, tx_path);
 #else
 #undef skb_gso_segment
-	segs = skb_gso_segment(skb, 0);
+	segs = skb_gso_segment(skb, features);
 #endif
 
 	if (!segs || IS_ERR(segs))
@@ -243,7 +243,7 @@ int rpl_ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 		int ret;
 		int id;
 
-		skb = tnl_skb_gso_segment(skb, 0, false, AF_INET);
+		skb = tnl_skb_gso_segment(skb, NETIF_F_SG | NETIF_F_HW_CSUM, false, AF_INET);
 		if (!skb || IS_ERR(skb))
 			return NET_XMIT_DROP;
 
@@ -285,7 +285,7 @@ int rpl_ip6_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 	if (skb_is_gso(skb)) {
 		int ret;
 
-		skb = tnl_skb_gso_segment(skb, 0, false, AF_INET6);
+		skb = tnl_skb_gso_segment(skb, NETIF_F_SG | NETIF_F_HW_CSUM, false, AF_INET6);
 		if (!skb || IS_ERR(skb))
 			return NET_XMIT_DROP;
 
