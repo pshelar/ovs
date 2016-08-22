@@ -22,6 +22,16 @@ function install_kernel()
     cd linux-${1}
     make allmodconfig
 
+    # CONFIG_STACK_VALIDATION depends on objtool
+    if [ -d "tools/objtool/" ]; then
+        cd tools/objtool/
+        make
+        cd ../..
+    fi
+    # Cannot use CONFIG_KCOV: -fsanitize-coverage=trace-pc is not supported by compiler
+    sed -i 's/CONFIG_KCOV=y/CONFIG_KCOV=n/' .config
+    make oldconfig
+
     # Older kernels do not include openvswitch
     if [ -d "net/openvswitch" ]; then
         make net/openvswitch/
