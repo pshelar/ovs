@@ -33,12 +33,6 @@ function install_kernel()
     else
         make net/bridge/
     fi
-    # CONFIG_STACK_VALIDATION depends on objtool
-    if [ -d "tools/objtool/" ]; then
-        cd tools/objtool/
-        make
-        cd ../..
-    fi
 
     KERNELSRC=$(pwd)
     if [ ! "$DPDK" ]; then
