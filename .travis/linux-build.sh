@@ -30,6 +30,7 @@ function install_kernel()
     fi
     # Cannot use CONFIG_KCOV: -fsanitize-coverage=trace-pc is not supported by compiler
     sed -i 's/CONFIG_KCOV=y/CONFIG_KCOV=n/' .config
+    sed -i 's/CONFIG_STACK_VALIDATION=y/CONFIG_STACK_VALIDATION=n/' .config
     make oldconfig
 
     # Older kernels do not include openvswitch
