@@ -22,12 +22,6 @@ function install_kernel()
     cd linux-${1}
     make allmodconfig
 
-    # CONFIG_STACK_VALIDATION depends on objtool
-    if [ -d "tools/objtool/" ]; then
-        cd tools/objtool/
-        make
-        cd ../..
-    fi
     # Cannot use CONFIG_KCOV: -fsanitize-coverage=trace-pc is not supported by compiler
     sed -i 's/CONFIG_KCOV=y/CONFIG_KCOV=n/' .config
     sed -i 's/CONFIG_STACK_VALIDATION=y/CONFIG_STACK_VALIDATION=n/' .config
@@ -38,6 +32,12 @@ function install_kernel()
         make net/openvswitch/
     else
         make net/bridge/
+    fi
+    # CONFIG_STACK_VALIDATION depends on objtool
+    if [ -d "tools/objtool/" ]; then
+        cd tools/objtool/
+        make
+        cd ../..
     fi
 
     KERNELSRC=$(pwd)
