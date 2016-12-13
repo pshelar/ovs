@@ -505,6 +505,10 @@ set_tunnel_config(struct netdev *dev_, const struct smap *args)
             }
 
             free(str);
+        } else if (!strcmp(node->key, "egress_pkt_mark")) {
+            char *ptr = NULL;
+
+            tnl_cfg.egress_pkt_mark = strtoul(node->value, &ptr, 10);
         } else {
             VLOG_WARN("%s: unknown %s argument '%s'", name, type, node->key);
         }
@@ -623,6 +627,10 @@ get_tunnel_config(const struct netdev *dev, struct smap *args)
         smap_add(args, "df_default", "false");
     }
 
+    if (tnl_cfg.egress_pkt_mark) {
+        smap_add_format(args, "egress_pkt_mark",
+                        "%"PRIu32, tnl_cfg.egress_pkt_mark);
+    }
     return 0;
 }
 
