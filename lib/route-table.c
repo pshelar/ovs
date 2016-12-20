@@ -45,7 +45,7 @@ struct route_data {
     struct in6_addr rta_dst; /* 0 if missing. */
     struct in6_addr rta_gw;
     char ifname[IFNAMSIZ]; /* Interface name. */
-    uint32_t mark;
+    uint32_t rta_mark;
 };
 
 /* A digested version of a route message sent down by the kernel to indicate
@@ -274,7 +274,7 @@ route_table_parse(struct ofpbuf *buf, struct route_table_msg *change)
             }
         }
         if (attrs[RTA_MARK]) {
-            change->rd.mark = nl_attr_get_u32(attrs[RTA_MARK]);
+            change->rd.rta_mark = nl_attr_get_u32(attrs[RTA_MARK]);
         }
     } else {
         VLOG_DBG_RL(&rl, "received unparseable rtnetlink route message");
@@ -298,7 +298,7 @@ route_table_handle_msg(const struct route_table_msg *change)
     if (change->relevant && change->nlmsg_type == RTM_NEWROUTE) {
         const struct route_data *rd = &change->rd;
 
-        ovs_router_insert(&rd->rta_dst, rd->rtm_dst_len,
+        ovs_router_insert(rd->rta_mark, &rd->rta_dst, rd->rtm_dst_len,
                           rd->ifname, &rd->rta_gw);
     }
 }

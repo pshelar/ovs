@@ -20,10 +20,22 @@ AT_CHECK([ovs-appctl netdev-dummy/ip4addr br0 192.0.2.1/24], [0], [OK
 ])
 AT_CHECK([ovs-appctl ovs/route/add 198.51.100.0/24 br0 192.0.2.254], [0], [OK
 ])
+AT_CHECK([ovs-appctl ovs/route/add 198.51.100.0/24 br0 192.0.2.253 123], [0], [OK
+])
+
 AT_CHECK([ovs-appctl ovs/route/lookup 198.51.100.1], [0], [src 192.0.2.1
 gateway 192.0.2.254
 dev br0
 ])
+AT_CHECK([ovs-appctl ovs/route/lookup 198.51.100.1 123], [0], [src 192.0.2.1
+gateway 192.0.2.253
+dev br0
+])
+AT_CHECK([ovs-appctl ovs/route/del 198.51.100.0/24 123], [0], [OK
+])
+AT_CHECK([ovs-appctl ovs/route/show | grep User], [0], [User: 198.51.100.0/24 dev br0 GW 192.0.2.254 SRC 192.0.2.1
+])
+
 OVS_VSWITCHD_STOP
 AT_CLEANUP
 
