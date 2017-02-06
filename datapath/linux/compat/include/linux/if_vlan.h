@@ -100,6 +100,25 @@ static inline struct sk_buff *rpl___vlan_hwaccel_put_tag(struct sk_buff *skb,
 #define __vlan_hwaccel_put_tag rpl___vlan_hwaccel_put_tag
 #endif
 
+#ifndef HAVE_ETH_TYPE_VLAN
+/**
+ * eth_type_vlan - check for valid vlan ether type.
+ * @ethertype: ether type to check
+ *
+ * Returns true if the ether type is a vlan ether type.
+ */
+static inline bool eth_type_vlan(__be16 ethertype)
+{
+	switch (ethertype) {
+	case htons(ETH_P_8021Q):
+	case htons(ETH_P_8021AD):
+		return true;
+	default:
+		return false;
+	}
+}
+#endif
+
 /* All of these were introduced in a single commit preceding 2.6.33, so
  * presumably all of them or none of them are present. */
 #ifndef VLAN_PRIO_MASK
@@ -188,7 +207,7 @@ static inline __be16 __vlan_get_protocol(struct sk_buff *skb, __be16 type,
 	 * present at mac_len - VLAN_HLEN (if mac_len > 0), or at
 	 * ETH_HLEN otherwise
 	 */
-	if (type == htons(ETH_P_8021Q) || type == htons(ETH_P_8021AD)) {
+	if (eth_type_vlan(type)) {
 		if (vlan_depth) {
 			if (WARN_ON(vlan_depth < VLAN_HLEN))
 				return 0;
@@ -206,8 +225,7 @@ static inline __be16 __vlan_get_protocol(struct sk_buff *skb, __be16 type,
 			vh = (struct vlan_hdr *)(skb->data + vlan_depth);
 			type = vh->h_vlan_encapsulated_proto;
 			vlan_depth += VLAN_HLEN;
-		} while (type == htons(ETH_P_8021Q) ||
-			 type == htons(ETH_P_8021AD));
+		} while (eth_type_vlan(type));
 	}
 
 	if (depth)
