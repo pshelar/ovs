@@ -764,7 +764,7 @@ format_odp_tnl_push_header(struct ds *ds, struct ovs_action_push_tnl *data)
 
         ds_put_format(ds, "gtpu(flags=0x%"PRIx8
                           ",msgtype=%"PRIu8",teid=0x%"PRIx32")",
-                      gtph->md.flags, gtph->md.msgtype,
+                      gtph->flags, gtph->msgtype,
                       ntohl(get_16aligned_be32(&gtph->teid)));
     }
 
@@ -1751,8 +1751,8 @@ ovs_parse_tnl_push(const char *s, struct ovs_action_push_tnl *data)
                 &gtpu_flags, &gtpu_msgtype, &teid)) {
         struct gtpuhdr *gtph = (struct gtpuhdr *) (udp + 1);
 
-        gtph->md.flags = gtpu_flags;
-        gtph->md.msgtype = gtpu_msgtype;
+        gtph->flags = gtpu_flags;
+        gtph->msgtype = gtpu_msgtype;
         put_16aligned_be32(&gtph->teid, htonl(teid));
         tnl_type = OVS_VPORT_TYPE_GTPU;
         header_len = sizeof *eth + ip_len +
@@ -2441,6 +2441,11 @@ parse_odp_action__(struct parse_odp_context *context, const char *s,
         return 8;
     }
 
+    if (!strncmp(s, "pop_eth", 7)) {
+        nl_msg_put_flag(actions, OVS_ACTION_ATTR_POP_ETH);
+        return 7;
+    }
+
     {
         unsigned long long int meter_id;
         int n = -1;
@@ -3077,8 +3082,12 @@ odp_tun_key_from_attr__(const struct nlattr *attr, bool is_mask,
         case OVS_TUNNEL_KEY_ATTR_GTPU_OPTS: {
             const struct gtpu_metadata *opts = nl_attr_get(a);
 
-            tun->gtpu_flags = opts->flags;
-            tun->gtpu_msgtype = opts->msgtype;
+            if (opts->ver == GTP_METADATA_V1) {
+                tun->gtpu_flags = opts->flags;
+                tun->gtpu_msgtype = opts->msgtype;
+            } else {
+                VLOG_WARN("%s invalid gtp opts version : %d\n", __func__, opts->ver);
+            }
             break;
         }
 
@@ -3201,7 +3210,8 @@ tun_key_to_attr(struct ofpbuf *a, const struct flow_tnl *tun_key,
 
         opts.flags = tun_key->gtpu_flags;
         opts.msgtype = tun_key->gtpu_msgtype;
-        nl_msg_put_unspec(a, OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS,
+        opts.ver = GTP_METADATA_V1;
+        nl_msg_put_unspec(a, OVS_TUNNEL_KEY_ATTR_GTPU_OPTS,
                           &opts, sizeof(opts));
     }
     nl_msg_end_nested(a, tun_key_ofs);
@@ -3462,8 +3472,8 @@ format_ipv6_label(struct ds *ds, const char *name, ovs_be32 key,
 }
 
 static void
-format_u8x(struct ds *ds, const char *name, uint8_t key,
-           const uint8_t *mask, bool verbose)
+format_u8x___(struct ds *ds, const char *name, uint8_t key,
+           const uint8_t *mask, bool verbose, bool add_comma)
 {
     bool mask_empty = mask && !*mask;
 
@@ -3474,8 +3484,17 @@ format_u8x(struct ds *ds, const char *name, uint8_t key,
         if (!mask_full) { /* Partially masked. */
             ds_put_format(ds, "/%#"PRIx8, *mask);
         }
-        ds_put_char(ds, ',');
+        if (add_comma) {
+            ds_put_char(ds, ',');
+        }
     }
+}
+
+static void
+format_u8x(struct ds *ds, const char *name, uint8_t key,
+           const uint8_t *mask, bool verbose)
+{
+    format_u8x___(ds, name, key, mask, verbose, true);
 }
 
 static void
@@ -3702,18 +3721,29 @@ format_odp_tun_erspan_opt(const struct nlattr *attr,
 
 static void
 format_odp_tun_gtpu_opt(const struct nlattr *attr,
-                        const struct nlattr *mask_attr, struct ds *ds,
-                        bool verbose)
+                          const struct nlattr *mask_attr, struct ds *ds,
+                          bool verbose)
 {
     const struct gtpu_metadata *opts, *mask;
+    uint8_t ver, ver_ma;
 
     opts = nl_attr_get(attr);
     mask = mask_attr ? nl_attr_get(mask_attr) : NULL;
 
-    format_u8x(ds, "flags", opts->flags, mask ? &mask->flags : NULL, verbose);
-    format_u8u(ds, "msgtype", opts->msgtype, mask ? &mask->msgtype : NULL,
-               verbose);
-    ds_chomp(ds, ',');
+    ver = (uint8_t)opts->ver;
+    if (mask) {
+        ver_ma = (uint8_t)mask->ver;
+    }
+
+    format_u8u(ds, "ver", ver, mask ? &ver_ma : NULL, verbose);
+
+    if (opts->ver == GTP_METADATA_V1) {
+        format_u8x(ds, "flags", opts->flags, !!mask ? &mask->flags : NULL, verbose);
+        format_u8x(ds, "msgtype", opts->msgtype, !!mask ? &mask->msgtype : NULL, verbose);
+        ds_chomp(ds, ',');
+    } else {
+        ds_put_format(ds, "Unknown opt ver %d", opts->ver);
+    }
 }
 
 #define MASK(PTR, FIELD) PTR ? &PTR->FIELD : NULL
@@ -5186,9 +5216,23 @@ scan_gtpu_metadata(const char *s,
                    struct gtpu_metadata *mask)
 {
     const char *s_base = s;
+    uint8_t ver = 0, ver_ma = 0;
     uint8_t flags = 0, flags_ma = 0;
     uint8_t msgtype = 0, msgtype_ma = 0;
     int len;
+
+    if (!strncmp(s, "ver=", 4)) {
+        s += 4;
+        len = scan_u8(s, &ver, mask ? &ver_ma : NULL);
+        if (len == 0) {
+            return 0;
+        }
+        s += len;
+    }
+    if (s[0] == ',') {
+        s++;
+    }
+
 
     if (!strncmp(s, "flags=", 6)) {
         s += 6;
@@ -5214,9 +5258,11 @@ scan_gtpu_metadata(const char *s,
 
     if (!strncmp(s, ")", 1)) {
         s += 1;
+        key->ver = ver;
         key->flags = flags;
         key->msgtype = msgtype;
         if (mask) {
+            mask->ver = ver_ma;
             mask->flags = flags_ma;
             mask->msgtype = msgtype_ma;
         }

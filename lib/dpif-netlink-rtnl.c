@@ -20,13 +20,14 @@
 
 #include <net/if.h>
 #include <linux/ip.h>
+#include <linux/if_link.h>
 #include <linux/rtnetlink.h>
+#include <unistd.h>
 
 #include "dpif-netlink.h"
 #include "netdev-vport.h"
 #include "netlink-socket.h"
 #include "openvswitch/vlog.h"
-
 VLOG_DEFINE_THIS_MODULE(dpif_netlink_rtnl);
 
 /* On some older systems, these enums are not defined. */
@@ -58,6 +59,10 @@ VLOG_DEFINE_THIS_MODULE(dpif_netlink_rtnl);
 #define IFLA_GENEVE_UDP_ZERO_CSUM6_RX 10
 #endif
 
+#ifndef IFLA_GTP_COLLECT_METADATA
+#define IFLA_GTP_COLLECT_METADATA 5
+#endif
+
 static const struct nl_policy rtlink_policy[] = {
     [IFLA_LINKINFO] = { .type = NL_A_NESTED },
 };
@@ -80,6 +85,9 @@ static const struct nl_policy geneve_policy[] = {
     [IFLA_GENEVE_COLLECT_METADATA] = { .type = NL_A_FLAG },
     [IFLA_GENEVE_UDP_ZERO_CSUM6_RX] = { .type = NL_A_U8 },
     [IFLA_GENEVE_PORT] = { .type = NL_A_U16 },
+};
+static const struct nl_policy gtp_policy[] = {
+    [IFLA_GTP_COLLECT_METADATA] = { .type = NL_A_FLAG },
 };
 
 static const char *
@@ -112,7 +120,7 @@ vport_type_to_kind(enum ovs_vport_type type,
             return NULL;
         }
     case OVS_VPORT_TYPE_GTPU:
-        return NULL;
+        return "gtp";
     case OVS_VPORT_TYPE_NETDEV:
     case OVS_VPORT_TYPE_INTERNAL:
     case OVS_VPORT_TYPE_LISP:
@@ -224,6 +232,26 @@ dpif_netlink_rtnl_gre_verify(const struct netdev_tunnel_config OVS_UNUSED *tnl,
 }
 
 static int
+dpif_netlink_rtnl_gtp_verify(const struct netdev_tunnel_config OVS_UNUSED *tnl,
+                             const char *kind, struct ofpbuf *reply)
+{
+    struct nlattr *gre[ARRAY_SIZE(gtp_policy)];
+    int err;
+
+    err = rtnl_policy_parse(kind, reply, gtp_policy, gre,
+                            ARRAY_SIZE(gtp_policy));
+
+    if (!err) {
+        if (!nl_attr_get_flag(gre[IFLA_GTP_COLLECT_METADATA])) {
+            VLOG_ERR("no md");
+            err = EINVAL;
+        }
+    }
+
+    return err;
+}
+
+static int
 dpif_netlink_rtnl_geneve_verify(const struct netdev_tunnel_config *tnl_cfg,
                                 const char *kind, struct ofpbuf *reply)
 {
@@ -254,11 +282,13 @@ dpif_netlink_rtnl_verify(const struct netdev_tunnel_config *tnl_cfg,
 
     kind = vport_type_to_kind(type, tnl_cfg);
     if (!kind) {
+        VLOG_ERR("kind not foudn");
         return EOPNOTSUPP;
     }
 
     err = dpif_netlink_rtnl_getlink(name, &reply);
     if (err) {
+        VLOG_ERR("dpif_netlink_rtnl_getlink error %d", err);
         return err;
     }
 
@@ -275,11 +305,13 @@ dpif_netlink_rtnl_verify(const struct netdev_tunnel_config *tnl_cfg,
     case OVS_VPORT_TYPE_GENEVE:
         err = dpif_netlink_rtnl_geneve_verify(tnl_cfg, kind, reply);
         break;
+    case OVS_VPORT_TYPE_GTPU:
+        err = dpif_netlink_rtnl_gtp_verify(tnl_cfg, kind, reply);
+        break;
     case OVS_VPORT_TYPE_NETDEV:
     case OVS_VPORT_TYPE_INTERNAL:
     case OVS_VPORT_TYPE_LISP:
     case OVS_VPORT_TYPE_STT:
-    case OVS_VPORT_TYPE_GTPU:
     case OVS_VPORT_TYPE_UNSPEC:
     case __OVS_VPORT_TYPE_MAX:
     default:
@@ -357,11 +389,13 @@ dpif_netlink_rtnl_create(const struct netdev_tunnel_config *tnl_cfg,
         nl_msg_put_u8(&request, IFLA_GENEVE_UDP_ZERO_CSUM6_RX, 1);
         nl_msg_put_be16(&request, IFLA_GENEVE_PORT, tnl_cfg->dst_port);
         break;
+    case OVS_VPORT_TYPE_GTPU:
+        nl_msg_put_flag(&request, IFLA_GTP_COLLECT_METADATA);
+        break;
     case OVS_VPORT_TYPE_NETDEV:
     case OVS_VPORT_TYPE_INTERNAL:
     case OVS_VPORT_TYPE_LISP:
     case OVS_VPORT_TYPE_STT:
-    case OVS_VPORT_TYPE_GTPU:
     case OVS_VPORT_TYPE_UNSPEC:
     case __OVS_VPORT_TYPE_MAX:
     default:
@@ -374,7 +408,8 @@ dpif_netlink_rtnl_create(const struct netdev_tunnel_config *tnl_cfg,
 
     err = nl_transact(NETLINK_ROUTE, &request, NULL);
     if (!err && (type == OVS_VPORT_TYPE_GRE ||
-                 type == OVS_VPORT_TYPE_IP6GRE)) {
+                 type == OVS_VPORT_TYPE_IP6GRE ||
+                 type == OVS_VPORT_TYPE_GTPU)) {
         /* Work around a bug in kernel GRE driver, which ignores IFLA_MTU in
          * RTM_NEWLINK, by setting the MTU again.  See
          * https://bugzilla.redhat.com/show_bug.cgi?id=1488484.
@@ -394,13 +429,13 @@ dpif_netlink_rtnl_create(const struct netdev_tunnel_config *tnl_cfg,
 
 exit:
     ofpbuf_uninit(&request);
-
     return err;
 }
 
 int
 dpif_netlink_rtnl_port_create(struct netdev *netdev)
 {
+    static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
     const struct netdev_tunnel_config *tnl_cfg;
     char namebuf[NETDEV_VPORT_NAME_BUFSIZE];
     enum ovs_vport_type type;
@@ -429,12 +464,11 @@ dpif_netlink_rtnl_port_create(struct netdev *netdev)
     if (err == EEXIST) {
         err = dpif_netlink_rtnl_verify(tnl_cfg, type, name);
         if (!err) {
+            VLOG_WARN_RL(&rl, "could not verify dev: %d", err);
             return 0;
         }
         err = dpif_netlink_rtnl_destroy(name);
         if (err) {
-            static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
-
             VLOG_WARN_RL(&rl, "RTNL device %s exists and cannot be "
                          "deleted: %s", name, ovs_strerror(err));
             return err;
@@ -442,16 +476,14 @@ dpif_netlink_rtnl_port_create(struct netdev *netdev)
         err = dpif_netlink_rtnl_create(tnl_cfg, name, type, kind, flags);
     }
     if (err) {
+        VLOG_WARN_RL(&rl, "could not create dev: %d", err);
         return err;
     }
 
     err = dpif_netlink_rtnl_verify(tnl_cfg, type, name);
     if (err) {
         int err2 = dpif_netlink_rtnl_destroy(name);
-
         if (err2) {
-            static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
-
             VLOG_WARN_RL(&rl, "Failed to delete device %s during rtnl port "
                          "creation: %s", name, ovs_strerror(err2));
         }
@@ -470,12 +502,12 @@ dpif_netlink_rtnl_port_destroy(const char *name, const char *type)
     case OVS_VPORT_TYPE_ERSPAN:
     case OVS_VPORT_TYPE_IP6ERSPAN:
     case OVS_VPORT_TYPE_IP6GRE:
+    case OVS_VPORT_TYPE_GTPU:
         return dpif_netlink_rtnl_destroy(name);
     case OVS_VPORT_TYPE_NETDEV:
     case OVS_VPORT_TYPE_INTERNAL:
     case OVS_VPORT_TYPE_LISP:
     case OVS_VPORT_TYPE_STT:
-    case OVS_VPORT_TYPE_GTPU:
     case OVS_VPORT_TYPE_UNSPEC:
     case __OVS_VPORT_TYPE_MAX:
     default:
