@@ -168,4 +168,30 @@ struct rtnl_link_stats64 {
 };
 #endif
 
+#ifndef HAVE_GTP_ROLE_GGSN
+/* GTP section */
+
+enum ifla_gtp_role {
+        GTP_ROLE_GGSN = 0,
+        GTP_ROLE_SGSN,
+};
+#endif
+
+enum {
+#define IFLA_GTP_UNSPEC rpl_IFLA_GTP_UNSPEC
+	IFLA_GTP_UNSPEC,
+#define IFLA_GTP_FD0 rpl_IFLA_GTP_FD0
+	IFLA_GTP_FD0,
+#define IFLA_GTP_FD1 rpl_IFLA_GTP_FD1
+	IFLA_GTP_FD1,
+#define IFLA_GTP_PDP_HASHSIZE rpl_IFLA_GTP_PDP_HASHSIZE
+	IFLA_GTP_PDP_HASHSIZE,
+#define IFLA_GTP_ROLE rpl_IFLA_GTP_ROLE
+	IFLA_GTP_ROLE,
+#define IFLA_GTP_COLLECT_METADATA rpl_IFLA_GTP_COLLECT_METADATA
+	IFLA_GTP_COLLECT_METADATA,
+#define __IFLA_GTP_MAX rpl___IFLA_GTP_MAX
+	__IFLA_GTP_MAX,
+};
+
 #endif
